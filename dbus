@@ -19,15 +19,13 @@ our $globTerm                                                        ;
 our $currentInstanceIdx = 0                                          ;
 
 #Mapping between packages (dirty)
-my @mainObj             = {}                                         ;
-my @dbusObject          = {}                                         ;
-my @parentTermObject    = {}                                         ;
+my %dbusObject          = ()                                         ;
+my %parentTermObject    = ()                                         ;
 my %dbusTabObject       = ()                                         ;
 
 #Called every time the terminal is updated
 sub refresh {
    my ($self) = @_;
-   @mainObj[$currentInstanceIdx] = $self;
    $self->want_refresh;
 }
 
@@ -61,9 +59,10 @@ sub new_tab {
       @argv,
    ;
    
-   $currentInstanceIdx++;
+   #$currentInstanceIdx++;
+   $dbusTabObject{$self}{"count"} = $dbusTabObject{$self}{"count"}+1;
+   $dbusTabObject{$self} = {$currentInstanceIdx => UrxvtTab->new($service,$realTerm->parent,$self,$dbusTabObject{$self}{"count"})};
    
-   $dbusTabObject{$self} = {$currentInstanceIdx => UrxvtTab->new($service,$realTerm->parent,$self,$currentInstanceIdx)};
 }
 
 sub configure {
@@ -240,7 +239,9 @@ sub on_start {
    
    my ($term) = @_;
    
-   @dbusObject[$self] = ByPid->new($service,$term->parent,$self);
+   $dbusObject{$self} = ByPid->new($service,$term->parent,$self);
+   $dbusTabObject{$self}{"count"} = 1;
+   $dbusTabObject{$self} = {$currentInstanceIdx => UrxvtTab->new($service,$term->parent,$self,$dbusTabObject{$self}{"count"})};
 
    $self->cmd_parse ("\033[?25l");
 
@@ -404,7 +405,7 @@ sub new {
     my $service = shift;
     my $self    = $class->SUPER::new($service, "/term/".shift."/control");
     my $parent  = shift;
-    @parentTermObject[$self] = $parent;
+    $parentTermObject{$self} = $parent;
     bless $self, $class;
     
     return $self;
@@ -414,7 +415,7 @@ dbus_method("addTab", [], ["int32"]);
 sub addTab {
     my $self    = shift;
     my $message = shift;
-    @parentTermObject[$self]->new_tab();
+    $parentTermObject{$self}->new_tab();
     return ["Hello", " from example-service.pl"];
 }
 
@@ -422,7 +423,7 @@ dbus_method("selectTab", [], ["int32"]);
 sub selectTab {
     my $self    = shift;
     my $message = shift;
-    @parentTermObject[$self]->make_current (@{@parentTermObject[$self]->{tabs} }[$message]);
+    $parentTermObject{$self}->make_current (@{$parentTermObject{$self}->{tabs} }[$message]);
     return ["Hello", " from example-service.pl"];
 }
 
@@ -452,7 +453,7 @@ sub new {
     
     bless $self, $class;
     
-    @parentTermObject[$self] = $parent;
+    $parentTermObject{$self} = $parent;
     
     return $self;
 }
@@ -461,7 +462,7 @@ dbus_method("closeTab", ["int32"], [["array", "string"]]);
 sub closeTab {
     my $self    = shift;
     my $message = shift;
-    @parentTermObject[$self]->destroy();
+    $parentTermObject{$self}->tab_destroy();
     return ["Hello", " from example-service.pl"];
 }
 
@@ -469,7 +470,7 @@ dbus_method("getTitle", [], ["string"]);
 sub getTitle {
     my $self    = shift;
     my $message = shift;
-    return @parentTermObject[$self]->resource("name");
+    return $parentTermObject{$self}->resource("name");
 }
 
 package main;
