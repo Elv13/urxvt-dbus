@@ -14,8 +14,6 @@ use strict;
 our $bus                = Net::DBus->session()                       ;
 our $service            = $bus->export_service("org.schmorp.urxvt")  ;
 our $dbusInit           = 0                                          ;
-#our $instanceCount      = 0                                          ;
-#our $globTerm                                                        ;
 our $currentInstanceIdx = 0                                          ;
 
 #Mapping between packages (dirty)
@@ -244,8 +242,6 @@ sub on_start {
    
    $dbusObject{$self} = ByPid->new($service,$term->parent,$self);
    $dbusTabObject{$self} = {"count" => 0};
-   #$dbusTabObject{$self} = {$currentInstanceIdx => UrxvtTab->new($service,$term->parent,$self,$dbusTabObject{$self}{"count"},$term->parent)};
-   #$dbusTabObject2{$self} = {$currentInstanceIdx => UrxvtTerm->new($service,$term->parent,$self,$dbusTabObject{$self}{"count"},$term->parent)};
 
    $self->cmd_parse ("\033[?25l");
 
@@ -492,21 +488,45 @@ our %termData = {};
 #Signals
 dbus_signal("colorChanged", [["array", "string"]]); #Arg=the tab color
 
+sub color {
+    my $self = shift;
+    $self->{color} = shift if @_;
+    return $self->{color};
+}
+dbus_property("color",   "string",  "readwrite");
+
+sub index {
+    my $self = shift;
+    return $self->{index};
+}
+dbus_property("index",   "string",  "read");
+
+sub windowId {
+    my $self = shift;
+    return $self->{winId};
+}
+dbus_property("windowId",   "string",  "read");
+
+sub tabWindowId {
+    my $self = shift;
+    return $self->{tabWinId};
+}
+dbus_property("tabWindowId",   "string",  "read");
+
 sub new {
-    my $class   = shift;
-    my $service = shift;
-    my $winId   = shift;
-    my $parent  = shift;
-    my $idx     = shift;
-    my $tabWinId= shift;
+    my $class    = shift;
+    my $service  = shift;
+    my $winId    = shift;
+    my $parent   = shift;
+    my $idx      = shift;
+    my $tabWinId = shift;
     
     my $self = $class->SUPER::new($service, "/terms/".$tabWinId);
-    
-    $termData{$self} = {};
-    $termData{$self}{"winId"}    = $winId;
-    $termData{$self}{"parent"}   = $parent;
-    $termData{$self}{"idx"}      = $idx;
-    $termData{$self}{"tabWinId"} = $tabWinId;
+
+    $self->{winId}    = $winId;
+    $self->{parent}   = $parent;
+    $self->{index}    = $idx;
+    $self->{tabWinId} = $tabWinId;
     
     bless $self, $class;
     
@@ -527,7 +547,7 @@ dbus_method("select", [], [["array", "string"]]);
 sub select {
     my $self    = shift;
     my $message = shift;
-    $parentTermObject{$self}->make_current (@{$parentTermObject{$self}->{tabs} }[$termData{$self}{"idx"}-1]);
+    $parentTermObject{$self}->make_current (@{$parentTermObject{$self}->{tabs} }[$self->{index}-1]);
     return ["Hello", " from example-service.pl"];
 }
 
@@ -535,8 +555,9 @@ dbus_method("setColor", ["string"], ["string"]);
 sub setColor {
     my $self    = shift;
     my $color   = shift;
+    $self->{color} = $color;
     #$parentTermObject{$self}->exec_async("notify-send","test $color");
-    $self->emit_signal("colorChanged", [$termData{$self}{"winId"}."",$termData{$self}{"idx"}."","$color"]);
+    $self->emit_signal("colorChanged", [$self->{winId}."",$self->{index}."","$color"]);
     return "$color";
 }
 
