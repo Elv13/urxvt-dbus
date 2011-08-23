@@ -14,8 +14,8 @@ use strict;
 our $bus                = Net::DBus->session()                       ;
 our $service            = $bus->export_service("org.schmorp.urxvt")  ;
 our $dbusInit           = 0                                          ;
-our $instanceCount      = 0                                          ;
-our $globTerm                                                        ;
+#our $instanceCount      = 0                                          ;
+#our $globTerm                                                        ;
 our $currentInstanceIdx = 0                                          ;
 
 #Mapping between packages (dirty)
@@ -23,7 +23,6 @@ my %dbusObject          = ()                                         ;
 my %parentTermObject    = ()                                         ;
 my %dbusTabObject       = ()                                         ;
 my %dbusTabObject2      = ()                                         ;
-my @parentWinId         = {}                                         ;
 
 #Called every time the terminal is updated
 sub refresh {
@@ -62,9 +61,10 @@ sub new_tab {
    ;
    
    #$currentInstanceIdx++;
-   $dbusTabObject{$self}{"count"} = $dbusTabObject{$self}{"count"}+1;
-   $dbusTabObject{$self} = {$currentInstanceIdx => UrxvtTab->new($service,$realTerm->parent,$self,$dbusTabObject{$self}{"count"},$term->parent)};
-   $dbusTabObject2{$self} = {$currentInstanceIdx => UrxvtTerm->new($service,$realTerm->parent,$self,$dbusTabObject{$self}{"count"},$term->parent)};
+   $dbusTabObject{$self}{"count"} += 1;
+   $realTerm->exec_async("notify-send","salut ".$dbusTabObject{$self}{"count"}.$self);
+   $dbusTabObject{$self}{$currentInstanceIdx}  = UrxvtTab->new($service,$realTerm->parent,$self,$dbusTabObject{$self}{"count"},$term->parent);
+   $dbusTabObject2{$self}{$currentInstanceIdx} = UrxvtTerm->new($service,$realTerm->parent,$self,$dbusTabObject{$self}{"count"},$term->parent);
    
 }
 
@@ -208,10 +208,10 @@ sub on_init {
    my ($self) = @_;
    
    my ($term) = @_;
-   $globTerm = $term;
-   $instanceCount += 1;
+   #$globTerm = $term;
+   #$instanceCount += 1;
    
-   $currentInstanceIdx = $instanceCount;
+   $currentInstanceIdx += 1;
    
    $self->{resource} = [map $self->resource ("+$_"), 0 .. urxvt::NUM_RESOURCES - 1];
 
@@ -243,7 +243,7 @@ sub on_start {
    my ($term) = @_;
    
    $dbusObject{$self} = ByPid->new($service,$term->parent,$self);
-   #$dbusTabObject{$self}{"count"} = 1;
+   $dbusTabObject{$self} = {"count" => 0};
    #$dbusTabObject{$self} = {$currentInstanceIdx => UrxvtTab->new($service,$term->parent,$self,$dbusTabObject{$self}{"count"},$term->parent)};
    #$dbusTabObject2{$self} = {$currentInstanceIdx => UrxvtTerm->new($service,$term->parent,$self,$dbusTabObject{$self}{"count"},$term->parent)};
 
@@ -403,7 +403,6 @@ dbus_property("age",   "int32",  "write");
 #Signals
 dbus_signal("contentChanged", ["string"]); #Arg=the tab index, usually 0
 dbus_signal("titleChanged",   ["string"]); #Arg=new title
-dbus_signal("colorChanged",   ["string"]); #Arg=the tab color
 
 sub new {
     my $class   = shift;
@@ -422,15 +421,6 @@ sub addTab {
     my $message = shift;
     $parentTermObject{$self}->new_tab();
     return 20000;
-}
-
-dbus_method("setColor", ["string"], ["string"]);
-sub setColor {
-    my $self    = shift;
-    my $color   = shift;
-    #$parentTermObject{$self}->exec_async("notify-send","test $color");
-    $self->emit_signal("colorChanged", "$color");
-    return "$color";
 }
 
 dbus_method("selectTab", [], ["int32"]);
@@ -467,11 +457,13 @@ sub new {
     my $idx     = shift;
     my $tabWinId= shift;
     
-    my $self = $class->SUPER::new($service, "/term/".$winId."/tab/".$tabWinId);
+    my $self = $class->SUPER::new($service, "/term/".$winId."/tab/".$idx);
     
     bless $self, $class;
     
     $parentTermObject{$self} = $parent;
+    
+    $parentTermObject{$self}->exec_async("notify-send","test $idx");
     
     return $self;
 }
@@ -484,14 +476,6 @@ sub closeTab {
     return ["Hello", " from example-service.pl"];
 }
 
-dbus_method("setColor", ["string"], ["string"]);
-sub setColor {
-    my $self    = shift;
-    my $color   = shift;
-    #$parentTermObject{$self}->exec_async("notify-send","test $color");
-    $self->emit_signal("colorChanged", "$color");
-    return "$color";
-}
 
 dbus_method("getTitle", [], ["string"]);
 sub getTitle {
@@ -503,24 +487,30 @@ sub getTitle {
 package UrxvtTerm;
 use base qw(Net::DBus::Object);
 use Net::DBus::Exporter qw(org.schmorp.urxvt);
+our %termData = {};
 
 #Signals
-dbus_signal("colorChanged", ["string"]); #Arg=the tab color
+dbus_signal("colorChanged", [["array", "string"]]); #Arg=the tab color
 
 sub new {
-    my $class    = shift;
-    my $service  = shift;
-    my $winId    = shift;
-    my $parent   = shift;
-    my $idx      = shift;
-    my $tabWinId = shift;
+    my $class   = shift;
+    my $service = shift;
+    my $winId   = shift;
+    my $parent  = shift;
+    my $idx     = shift;
+    my $tabWinId= shift;
     
     my $self = $class->SUPER::new($service, "/terms/".$tabWinId);
+    
+    $termData{$self} = {};
+    $termData{$self}{"winId"}    = $winId;
+    $termData{$self}{"parent"}   = $parent;
+    $termData{$self}{"idx"}      = $idx;
+    $termData{$self}{"tabWinId"} = $tabWinId;
     
     bless $self, $class;
     
     $parentTermObject{$self} = $parent;
-    @parentWinId[$tabWinId]  = $winId;
     
     return $self;
 }
@@ -533,12 +523,20 @@ sub closeTab {
     return ["Hello", " from example-service.pl"];
 }
 
+dbus_method("select", [], [["array", "string"]]);
+sub select {
+    my $self    = shift;
+    my $message = shift;
+    $parentTermObject{$self}->make_current (@{$parentTermObject{$self}->{tabs} }[$termData{$self}{"idx"}-1]);
+    return ["Hello", " from example-service.pl"];
+}
+
 dbus_method("setColor", ["string"], ["string"]);
 sub setColor {
     my $self    = shift;
     my $color   = shift;
     #$parentTermObject{$self}->exec_async("notify-send","test $color");
-    $self->emit_signal("colorChanged", "$color");
+    $self->emit_signal("colorChanged", [$termData{$self}{"winId"}."",$termData{$self}{"idx"}."","$color"]);
     return "$color";
 }
 
